@@ -25,10 +25,12 @@
  /**
   * hashOtp.
   */
- /**
-  * hashOtp.
-  */
  export function hashOtp(otp) {
-   const salt = process.env.JWT_SECRET || "otp_salt";
-   return crypto.createHash("sha256").update(`${otp}.${salt}`).digest("hex");
+  const secret = process.env.OTP_SECRET || process.env.JWT_SECRET;
+  if (!secret) {
+    const err = new Error("OTP_SECRET/JWT_SECRET is not configured");
+    err.statusCode = 500;
+    throw err;
+  }
+  return crypto.createHash("sha256").update(`${otp}.${secret}`).digest("hex");
  }

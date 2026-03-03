@@ -5,6 +5,9 @@
  */
 import User from "../models/user.model.js";
 import { deleteFile, uploadBuffer } from "../services/gridfs.service.js";
+import Patient from "../models/patient.model.js";
+import Doctor from "../models/doctor.model.js";
+import Admin from "../models/admin.model.js";
 
 // user.controller.js
 //
@@ -53,8 +56,22 @@ export async function getMyUser(req, res, next) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    const email = String(user.email || "").trim().toLowerCase();
+    const [admin, patient, doctor] = await Promise.all([
+      email ? Admin.findOne({ email }).select({ _id: 1 }).lean() : null,
+      email ? Patient.findOne({ email }).select({ _id: 1 }).lean() : null,
+      email ? Doctor.findOne({ email }).select({ _id: 1 }).lean() : null,
+    ]);
+
+    const isAdmin = Boolean(admin);
+    const role = isAdmin ? "admin" : patient ? "patient" : doctor ? "doctor" : null;
+    const isRegistered = Boolean(role);
+
     return res.status(200).json({
       success: true,
+      role,
+      isAdmin,
+      isRegistered,
       user: {
         id: user._id.toString(),
         email: user.email,

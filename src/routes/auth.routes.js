@@ -4,18 +4,16 @@
  * Auto-generated documentation comments.
  */
  import { Router } from "express";
- import { requestOtp, verifyOtp } from "../controllers/auth.controller.js";
+ import { loginWithEmail } from "../controllers/auth.controller.js";
 
  // auth.routes.js
  //
  // Authentication routes.
- // This backend uses an OTP-based login flow:
- // - POST /auth/login -> request OTP for an email
- // - POST /auth/verify-otp -> verify OTP and create a session/token
+ // This backend uses an email-only login flow:
+ // - POST /auth/login -> login with email
 
  const router = Router();
-
- router.post("/login", requestOtp);
- router.post("/verify-otp", verifyOtp);
-
+ 
+ router.post("/login", loginWithEmail);
+ 
  export default router;

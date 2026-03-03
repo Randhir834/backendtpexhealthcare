@@ -9,6 +9,8 @@
  // - Doctor self-updates (profile, identity docs, registration certificate)
  import mongoose from "mongoose";
  import Doctor from "../models/doctor.model.js";
+ import Patient from "../models/patient.model.js";
+ import DoctorRating from "../models/doctorRating.model.js";
  import User from "../models/user.model.js";
  import { deleteFile, getFileInfo, openDownloadStream, uploadBuffer } from "../services/gridfs.service.js";
 
@@ -23,6 +25,126 @@
  */
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+export async function updateMyConsultationFee(req, res, next) {
+  try {
+    const userId = req.user?.sub;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const fee = Number(req.body?.consultationFee);
+    if (!Number.isFinite(fee) || fee < 0 || fee > 1000000) {
+      return res.status(400).json({ success: false, message: "Valid consultationFee is required" });
+    }
+
+    const userObjectId = mongoose.Types.ObjectId.isValid(String(userId))
+      ? new mongoose.Types.ObjectId(String(userId))
+      : null;
+    if (!userObjectId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const upd = await Doctor.collection.updateOne(
+      { userId: userObjectId },
+      { $set: { consultationFee: fee, updatedAt: new Date() } }
+    );
+    if (!upd?.matchedCount) {
+      return res.status(404).json({ success: false, message: "Doctor profile not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      doctor: {
+        consultationFee: fee,
+      },
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function rateDoctor(req, res, next) {
+  try {
+    const userId = String(req.user?.sub || "").trim();
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const doctorId = String(req.params?.doctorId || "").trim();
+    if (!doctorId || !mongoose.Types.ObjectId.isValid(doctorId)) {
+      return res.status(400).json({ success: false, message: "Valid doctorId is required" });
+    }
+
+    const rating = Number.parseInt(String(req.body?.rating ?? "").trim(), 10);
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({ success: false, message: "Rating must be an integer between 1 and 5" });
+    }
+
+    const patient = await Patient.findOne({ userId }).select({ _id: 1 }).lean();
+    if (!patient) {
+      return res.status(403).json({ success: false, message: "Only patients can rate doctors" });
+    }
+
+    const doctor = await Doctor.findById(doctorId).select({ adminRating: 1, approvalStatus: 1 }).lean();
+    if (!doctor) {
+      return res.status(404).json({ success: false, message: "Doctor not found" });
+    }
+    if (doctor.approvalStatus !== "approved") {
+      return res.status(400).json({ success: false, message: "Doctor is not verified" });
+    }
+
+    const last = await DoctorRating.findOne({ doctorId, userId })
+      .sort({ createdAt: -1 })
+      .select({ createdAt: 1 })
+      .lean();
+
+    if (last?.createdAt) {
+      const now = Date.now();
+      const lastAt = new Date(last.createdAt).getTime();
+      const windowMs = 24 * 60 * 60 * 1000;
+      if (now - lastAt < windowMs) {
+        const nextAllowedAt = new Date(lastAt + windowMs);
+        return res.status(429).json({
+          success: false,
+          message: "You can rate this doctor again after 24 hours",
+          nextAllowedAt,
+        });
+      }
+    }
+
+    await DoctorRating.create({
+      doctorId: new mongoose.Types.ObjectId(doctorId),
+      userId: new mongoose.Types.ObjectId(userId),
+      rating,
+    });
+
+    const patientAgg = await DoctorRating.aggregate([
+      { $match: { doctorId: new mongoose.Types.ObjectId(doctorId) } },
+      { $group: { _id: "$doctorId", count: { $sum: 1 }, sum: { $sum: "$rating" } } },
+    ]);
+
+    const aggRow = Array.isArray(patientAgg) && patientAgg.length ? patientAgg[0] : { count: 0, sum: 0 };
+    let ratingCount = Number(aggRow?.count || 0);
+    let ratingSum = Number(aggRow?.sum || 0);
+    if (doctor?.adminRating != null) {
+      ratingCount += 1;
+      ratingSum += Number(doctor.adminRating);
+    }
+    const averageRating = ratingCount > 0 ? Math.round((ratingSum / ratingCount) * 10) / 10 : null;
+
+    return res.status(200).json({
+      success: true,
+      doctor: {
+        id: doctorId,
+        averageRating,
+        ratingCount,
+      },
+    });
+  } catch (err) {
+    return next(err);
+  }
 }
 
  /**
@@ -40,8 +162,20 @@ function normalizeEmail(email) {
     // Only doctors with approvalStatus = "approved" are returned.
     const doctors = await Doctor.find({ approvalStatus: "approved" })
       .sort({ createdAt: -1 })
-      .select("fullName qualification clinicAddress experience timing isOnline")
+      .select("fullName specialty adminRating consultationFee qualification clinicAddress experience timing isOnline")
       .lean();
+
+    const doctorIds = (doctors || []).map((d) => d?._id).filter(Boolean);
+    const patientAgg = doctorIds.length
+      ? await DoctorRating.aggregate([
+          { $match: { doctorId: { $in: doctorIds } } },
+          { $group: { _id: "$doctorId", count: { $sum: 1 }, sum: { $sum: "$rating" } } },
+        ])
+      : [];
+
+    const patientAggMap = new Map(
+      (patientAgg || []).map((r) => [String(r?._id || ""), { count: Number(r?.count || 0), sum: Number(r?.sum || 0) }])
+    );
 
     // Transform doctor data for API response
     const baseUrl = `${req.protocol}://${req.get("host")}`;
@@ -53,9 +187,22 @@ function normalizeEmail(email) {
         const isAvailable = Boolean(timing.sessionOneEnabled || timing.sessionTwoEnabled);
         const yearsOfExperience = Number(d?.experience?.totalExperience || 0);
 
+        const agg = patientAggMap.get(String(d?._id || "")) || { count: 0, sum: 0 };
+        let ratingCount = agg.count;
+        let ratingSum = agg.sum;
+        if (d?.adminRating != null) {
+          ratingCount += 1;
+          ratingSum += Number(d.adminRating);
+        }
+        const averageRating = ratingCount > 0 ? Math.round((ratingSum / ratingCount) * 10) / 10 : null;
+
         return {
           id: d?._id?.toString?.() ?? "",
           fullName: d?.fullName ?? "",
+          specialty: d?.specialty ?? "",
+          adminRating: d?.adminRating ?? null,
+          averageRating,
+          ratingCount,
           highestDegree: d?.qualification?.highestDegree ?? "",
           instituteName: d?.qualification?.instituteName ?? "",
           city: d?.clinicAddress?.city ?? "",
@@ -63,7 +210,7 @@ function normalizeEmail(email) {
           yearsOfExperience,
           isAvailable,
           isOnline: d?.isOnline === true,
-          consultationFee: 0,
+          consultationFee: Number(d?.consultationFee || 0),
           photoUrl: d?._id ? `${baseUrl}/doctors/${d._id.toString()}/profile-photo` : "",
         };
       }),
@@ -249,6 +396,7 @@ function normalizeEmail(email) {
         fullName: doctor.fullName,
         phone: doctor.phone,
         email: doctor.email,
+        specialty: doctor.specialty,
         qualification: doctor.qualification,
         clinicAddress: doctor.clinicAddress,
         identity: {
@@ -509,6 +657,7 @@ function isValidTimeHHmm(value) {
         fullName: doctor.fullName,
         phone: doctor.phone,
         email: doctor.email,
+        specialty: doctor.specialty,
         qualification: doctor.qualification,
         clinicAddress: doctor.clinicAddress,
         identity: {
@@ -577,11 +726,16 @@ function isValidTimeHHmm(value) {
 
     const fullName = String(req.body?.fullName || "").trim();
     const phone = String(req.body?.phone || "").trim();
+    const specialty = String(req.body?.specialty || "").trim();
     if (!fullName) {
       return res.status(400).json({ success: false, message: "Full name is required" });
     }
     if (!phone || !isValidPhone(phone)) {
       return res.status(400).json({ success: false, message: "Valid 10-digit phone is required" });
+    }
+
+    if (!specialty) {
+      return res.status(400).json({ success: false, message: "Specialty is required" });
     }
 
     const highestDegree = String(req.body?.highestDegree || "").trim();
@@ -763,6 +917,7 @@ function isValidTimeHHmm(value) {
           fullName,
           phone,
           email: tokenEmail,
+          specialty,
           approvalStatus: "pending",
           approvedAt: null,
           approvedByEmail: null,
@@ -904,6 +1059,8 @@ export async function getMyDoctorProfile(req, res, next) {
         fullName: doctor.fullName,
         phone: doctor.phone,
         email: doctor.email,
+        specialty: doctor.specialty,
+        consultationFee: Number(doctor.consultationFee || 0),
         qualification: doctor.qualification,
         clinicAddress: doctor.clinicAddress,
         identity: {
@@ -1001,6 +1158,12 @@ export async function updateMyDoctorProfile(req, res, next) {
     const fullName = String(req.body?.fullName || "").trim();
     const phone = String(req.body?.phone || "").trim();
 
+    const specialtyRaw = req.body?.specialty;
+    const specialty =
+      specialtyRaw === undefined
+        ? String(doctor.specialty || "").trim()
+        : String(specialtyRaw || "").trim();
+
     const highestDegree = String(req.body?.highestDegree || "").trim();
     const instituteName = String(req.body?.instituteName || "").trim();
     const yearOfPassing = toInt(req.body?.yearOfPassing);
@@ -1032,6 +1195,10 @@ export async function updateMyDoctorProfile(req, res, next) {
     }
     if (!phone || !isValidPhone(phone)) {
       return res.status(400).json({ success: false, message: "Valid 10-digit phone is required" });
+    }
+
+    if (specialtyRaw !== undefined && !specialty) {
+      return res.status(400).json({ success: false, message: "Specialty is required" });
     }
 
     if (!highestDegree) {
@@ -1126,6 +1293,9 @@ export async function updateMyDoctorProfile(req, res, next) {
 
     doctor.fullName = fullName;
     doctor.phone = phone;
+    if (specialtyRaw !== undefined) {
+      doctor.specialty = specialty;
+    }
 
     doctor.qualification = {
       highestDegree,
@@ -1181,6 +1351,7 @@ export async function updateMyDoctorProfile(req, res, next) {
         fullName: doctor.fullName,
         phone: doctor.phone,
         email: doctor.email,
+        specialty: doctor.specialty,
         qualification: doctor.qualification,
         clinicAddress: doctor.clinicAddress,
         identity: {

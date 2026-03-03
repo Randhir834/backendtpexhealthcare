@@ -3,8 +3,6 @@
  *
  * Auto-generated documentation comments.
  */
-import Doctor from "../models/doctor.model.js";
-import Patient from "../models/patient.model.js";
 import Admin from "../models/admin.model.js";
 
 // admin.middleware.js
@@ -39,15 +37,6 @@ export default async function adminMiddleware(req, res, next) {
 
     const admin = await Admin.findOne({ email }).select({ _id: 1 }).lean();
     if (!admin) {
-      return res.status(403).json({ success: false, message: "Forbidden" });
-    }
-
-    const [doctor, patient] = await Promise.all([
-      Doctor.findOne({ email }).select({ _id: 1 }).lean(),
-      Patient.findOne({ email }).select({ _id: 1 }).lean(),
-    ]);
-
-    if (doctor || patient) {
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
 

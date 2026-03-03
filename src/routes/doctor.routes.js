@@ -15,7 +15,9 @@ import {
   getDoctorProfilePhoto,
   getMyDoctorProfile,
   registerDoctor,
+  rateDoctor,
   updateMyOnlineStatus,
+  updateMyConsultationFee,
   updateMyDoctorProfile,
   updateMyDoctorIdentityDocuments,
   updateMyDoctorRegistrationCertificate,
@@ -40,10 +42,12 @@ const router = Router();
 
 router.get("/", listDoctors);
 router.get("/:doctorId/profile-photo", getDoctorProfilePhoto);
+router.post("/:doctorId/rating", authMiddleware, rateDoctor);
 router.post("/register", authMiddleware, doctorRegistrationUpload, registerDoctor);
 router.get("/me", authMiddleware, getMyDoctorProfile);
 router.put("/me", authMiddleware, updateMyDoctorProfile);
 router.put("/me/online-status", authMiddleware, updateMyOnlineStatus);
+router.put("/me/consultation-fee", authMiddleware, updateMyConsultationFee);
 router.put(
   "/me/registration-certificate",
   authMiddleware,

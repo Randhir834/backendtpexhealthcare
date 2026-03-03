@@ -14,13 +14,14 @@ const chatConversationSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    lastMessageText: {
-      type: String,
-      default: "",
-      trim: true,
-    },
     lastMessageAt: {
       type: Date,
+      default: null,
+      index: true,
+    },
+    lastMessageType: {
+      type: String,
+      enum: ["text", "image", "file"],
       default: null,
       index: true,
     },

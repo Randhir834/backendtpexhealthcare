@@ -114,8 +114,8 @@
     status: {
       type: String,
       required: true,
-      enum: ["confirmed", "cancelled", "completed"],
-      default: "confirmed",
+      enum: ["pending", "confirmed", "cancelled", "completed"],
+      default: "pending",
       index: true,
     },
     notes: {
@@ -137,12 +137,45 @@
       type: String,
       required: true,
       enum: ["paid", "pending", "failed"],
-      default: "paid",
+      default: "pending",
     },
     transactionId: {
       type: String,
       default: "",
       trim: true,
+    },
+    razorpayOrderId: {
+      type: String,
+      default: "",
+      trim: true,
+      index: true,
+    },
+    razorpayPaymentId: {
+      type: String,
+      default: "",
+      trim: true,
+      index: true,
+    },
+    razorpaySignature: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    rescheduleCount: {
+      type: Number,
+      min: 0,
+      default: 0,
+      index: true,
+    },
+    rescheduledAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    reminderEmailSentAt: {
+      type: Date,
+      default: null,
+      index: true,
     },
   },
   { timestamps: true }

@@ -33,6 +33,10 @@
     return next(err);
   }
 
+  if (process.env.NODE_ENV === "production" && statusCode >= 500) {
+    message = "Internal Server Error";
+  }
+
   return res.status(statusCode).json({
     success: false,
     message,

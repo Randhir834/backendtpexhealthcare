@@ -183,7 +183,7 @@ function isValidTimeHHmm(value) {
     // Admin list: doctors not yet approved.
     const doctors = await Doctor.find({ approvalStatus: { $ne: "approved" } })
       .sort({ createdAt: -1 })
-      .select("fullName email phone approvalStatus createdAt")
+      .select("fullName email phone specialty approvalStatus createdAt")
       .lean();
 
     const baseUrl = `${req.protocol}://${req.get("host")}`;
@@ -195,6 +195,7 @@ function isValidTimeHHmm(value) {
         fullName: d?.fullName ?? "",
         email: d?.email ?? "",
         phone: d?.phone ?? "",
+        specialty: d?.specialty ?? "",
         approvalStatus: d?.approvalStatus ?? "pending",
         photoUrl: d?._id ? `${baseUrl}/admin/doctors/${d._id.toString()}/profile-photo` : "",
         createdAt: d?.createdAt ?? null,
@@ -408,11 +409,15 @@ function isValidTimeHHmm(value) {
 
     const fullName = String(req.body?.fullName || "").trim();
     const phone = String(req.body?.phone || "").trim();
+    const specialty = String(req.body?.specialty || "").trim();
     if (!fullName) {
       return res.status(400).json({ success: false, message: "Full name is required" });
     }
     if (!phone || !isValidPhone(phone)) {
       return res.status(400).json({ success: false, message: "Valid 10-digit phone is required" });
+    }
+    if (!specialty) {
+      return res.status(400).json({ success: false, message: "Specialty is required" });
     }
 
     const highestDegree = String(req.body?.highestDegree || "").trim();
@@ -593,6 +598,7 @@ function isValidTimeHHmm(value) {
           fullName,
           phone,
           email,
+          specialty,
           approvalStatus: "approved",
           approvedAt: new Date(),
           approvedByEmail: adminEmail,
@@ -671,6 +677,7 @@ function isValidTimeHHmm(value) {
         fullName: doctor.fullName,
         email: doctor.email,
         phone: doctor.phone,
+        specialty: doctor.specialty,
       },
     });
   } catch (err) {
@@ -686,16 +693,14 @@ function isValidTimeHHmm(value) {
   */
  /**
   * listVerifiedDoctors.
-  */
- /**
   * listVerifiedDoctors.
   */
  export async function listVerifiedDoctors(req, res, next) {
-  try {
+ try {
     // Admin list: approved doctors.
     const doctors = await Doctor.find({ approvalStatus: "approved" })
       .sort({ approvedAt: -1, createdAt: -1 })
-      .select("fullName email phone approvalStatus approvedAt createdAt")
+      .select("fullName email phone specialty adminRating approvalStatus approvedAt createdAt")
       .lean();
 
     const baseUrl = `${req.protocol}://${req.get("host")}`;
@@ -707,11 +712,54 @@ function isValidTimeHHmm(value) {
         fullName: d?.fullName ?? "",
         email: d?.email ?? "",
         phone: d?.phone ?? "",
+        specialty: d?.specialty ?? "",
+        adminRating: d?.adminRating ?? null,
         approvalStatus: d?.approvalStatus ?? "approved",
         photoUrl: d?._id ? `${baseUrl}/admin/doctors/${d._id.toString()}/profile-photo` : "",
         approvedAt: d?.approvedAt ?? null,
         createdAt: d?.createdAt ?? null,
       })),
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function setDoctorAdminRating(req, res, next) {
+ try {
+    const adminEmail = normalizeEmail(req.user?.email);
+    if (!adminEmail) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const doctorId = String(req.params?.id || "").trim();
+    if (!doctorId || !mongoose.Types.ObjectId.isValid(doctorId)) {
+      return res.status(400).json({ success: false, message: "Valid doctor id is required" });
+    }
+
+    const rating = Number.parseInt(String(req.body?.rating ?? "").trim(), 10);
+    if (!Number.isFinite(rating) || rating < 0 || rating > 5) {
+      return res.status(400).json({ success: false, message: "Rating must be an integer between 0 and 5" });
+    }
+
+    const doctor = await Doctor.findById(doctorId);
+    if (!doctor) {
+      return res.status(404).json({ success: false, message: "Doctor not found" });
+    }
+
+    if (doctor.approvalStatus !== "approved") {
+      return res.status(400).json({ success: false, message: "Doctor is not verified" });
+    }
+
+    doctor.adminRating = rating === 0 ? null : rating;
+    await doctor.save();
+
+    return res.status(200).json({
+      success: true,
+      doctor: {
+        id: doctor._id.toString(),
+        adminRating: doctor.adminRating ?? null,
+      },
     });
   } catch (err) {
     return next(err);
@@ -755,6 +803,7 @@ function isValidTimeHHmm(value) {
         fullName: doctor.fullName,
         email: doctor.email,
         phone: doctor.phone,
+        specialty: doctor.specialty,
         qualification: doctor.qualification,
         clinicAddress: doctor.clinicAddress,
         identity: {

@@ -86,15 +86,16 @@ export default function registerChatSocketHandlers(io, socket) {
   socket.on("message:send", async (payload, ack) => {
     try {
       const conversationId = String(payload?.conversationId || "").trim();
-      const text = String(payload?.text || "").trim();
+      const ciphertext = String(payload?.ciphertext || "").trim();
+      const senderCiphertext = String(payload?.senderCiphertext || "").trim();
       const clientMessageId = String(payload?.clientMessageId || "").trim();
 
       if (!isValidObjectId(conversationId)) {
         if (typeof ack === "function") ack({ success: false, message: "Valid conversationId is required" });
         return;
       }
-      if (!text) {
-        if (typeof ack === "function") ack({ success: false, message: "text is required" });
+      if (!ciphertext) {
+        if (typeof ack === "function") ack({ success: false, message: "ciphertext is required" });
         return;
       }
 
@@ -129,11 +130,14 @@ export default function registerChatSocketHandlers(io, socket) {
         conversationId: conversation._id,
         senderRole: role,
         senderProfileId: profileId,
-        text,
+        type: "text",
+        ciphertext,
+        senderCiphertext: senderCiphertext || "",
+        clientMessageId: clientMessageId || "",
       });
 
-      conversation.lastMessageText = text;
       conversation.lastMessageAt = message.createdAt;
+      conversation.lastMessageType = "text";
       await conversation.save();
 
       const mapped = {
@@ -141,7 +145,10 @@ export default function registerChatSocketHandlers(io, socket) {
         conversationId: conversation._id.toString(),
         senderRole: message.senderRole,
         senderProfileId: String(message.senderProfileId),
-        text: message.text,
+        type: "text",
+        ciphertext: message.ciphertext,
+        senderCiphertext: message.senderCiphertext || "",
+        clientMessageId: message.clientMessageId || "",
         createdAt: message.createdAt ? new Date(message.createdAt).toISOString() : null,
       };
 
@@ -157,8 +164,8 @@ export default function registerChatSocketHandlers(io, socket) {
           success: true,
           conversation: {
             id: conversation._id.toString(),
-            lastMessageText: text,
             lastMessageAt: message.createdAt ? new Date(message.createdAt).toISOString() : null,
+            lastMessageType: "text",
           },
         }
       );
@@ -168,8 +175,8 @@ export default function registerChatSocketHandlers(io, socket) {
           success: true,
           conversation: {
             id: conversation._id.toString(),
-            lastMessageText: text,
             lastMessageAt: message.createdAt ? new Date(message.createdAt).toISOString() : null,
+            lastMessageType: "text",
           },
         }
       );
@@ -179,6 +186,51 @@ export default function registerChatSocketHandlers(io, socket) {
       }
     } catch (_) {
       if (typeof ack === "function") ack({ success: false, message: "Failed to send message" });
+    }
+  });
+
+  socket.on("message:ack", async (payload, ack) => {
+    try {
+      const conversationId = String(payload?.conversationId || "").trim();
+      const messageId = String(payload?.messageId || "").trim();
+      if (!isValidObjectId(conversationId) || !isValidObjectId(messageId)) {
+        if (typeof ack === "function") ack({ success: false, message: "Valid conversationId and messageId are required" });
+        return;
+      }
+
+      const conversation = await ChatConversation.findById(conversationId)
+        .select({ doctorId: 1, patientId: 1 })
+        .lean();
+      if (!conversation) {
+        if (typeof ack === "function") ack({ success: false, message: "Conversation not found" });
+        return;
+      }
+
+      const role = socket.data?.role;
+      const profileId = socket.data?.profileId;
+      const isMember =
+        (role === "doctor" && String(conversation.doctorId) === String(profileId)) ||
+        (role === "patient" && String(conversation.patientId) === String(profileId));
+      if (!isMember) {
+        if (typeof ack === "function") ack({ success: false, message: "Forbidden" });
+        return;
+      }
+
+      const message = await ChatMessage.findOne({ _id: messageId, conversationId })
+        .select({ senderProfileId: 1 })
+        .lean();
+      if (!message) {
+        if (typeof ack === "function") ack({ success: false, message: "Message not found" });
+        return;
+      }
+
+      if (String(message.senderProfileId) === String(profileId)) {
+        if (typeof ack === "function") ack({ success: false, message: "Sender cannot ack" });
+        return;
+      }
+      if (typeof ack === "function") ack({ success: true });
+    } catch (_) {
+      if (typeof ack === "function") ack({ success: false, message: "Failed to ack message" });
     }
   });
 }

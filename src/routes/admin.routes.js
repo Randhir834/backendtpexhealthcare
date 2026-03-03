@@ -21,6 +21,7 @@ import {
   listPatients,
   registerDoctorByAdmin,
   listVerifiedDoctors,
+  setDoctorAdminRating,
 } from "../controllers/admin.controller.js";
 import { addAdmin } from "../controllers/adminManagement.controller.js";
 
@@ -40,26 +41,27 @@ import { addAdmin } from "../controllers/adminManagement.controller.js";
 
 const router = Router();
 
+router.use(authMiddleware, adminMiddleware);
+
 // Doctor approval workflow
-router.get("/doctors/pending", authMiddleware, adminMiddleware, listPendingDoctors);
-router.get("/doctors/verified", authMiddleware, adminMiddleware, listVerifiedDoctors);
-router.post("/doctors/register", authMiddleware, adminMiddleware, doctorRegistrationUpload, registerDoctorByAdmin);
-router.get("/doctors/:id/profile-photo", authMiddleware, adminMiddleware, getDoctorProfilePhotoForAdmin);
-router.get("/doctors/:id", authMiddleware, adminMiddleware, getDoctorForApproval);
-router.put("/doctors/:id/approve", authMiddleware, adminMiddleware, approveDoctor);
+router.get("/doctors/pending", listPendingDoctors);
+router.get("/doctors/verified", listVerifiedDoctors);
+router.post("/doctors/register", doctorRegistrationUpload, registerDoctorByAdmin);
+router.get("/doctors/:id/profile-photo", getDoctorProfilePhotoForAdmin);
+router.get("/doctors/:id", getDoctorForApproval);
+router.put("/doctors/:id/approve", approveDoctor);
+router.put("/doctors/:id/rating", setDoctorAdminRating);
 
-router.get("/patients", authMiddleware, adminMiddleware, listPatients);
-router.get("/patients/:id/profile-photo", authMiddleware, adminMiddleware, getPatientProfilePhotoForAdmin);
-router.get("/patients/:id", authMiddleware, adminMiddleware, getPatientDetails);
+router.get("/patients", listPatients);
+router.get("/patients/:id/profile-photo", getPatientProfilePhotoForAdmin);
+router.get("/patients/:id", getPatientDetails);
 
-router.get("/appointments/doctors", authMiddleware, adminMiddleware, adminListAppointmentDoctors);
+router.get("/appointments/doctors", adminListAppointmentDoctors);
 router.get(
   "/appointments/doctors/:doctorId",
-  authMiddleware,
-  adminMiddleware,
   adminGetDoctorAppointments
 );
 
-router.post("/admins", authMiddleware, adminMiddleware, addAdmin);
+router.post("/admins", addAdmin);
 
 export default router;

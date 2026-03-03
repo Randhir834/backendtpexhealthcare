@@ -9,6 +9,7 @@ import {
   cancelMyAppointment,
   createAppointment,
   getAvailableSlots,
+  getMyAppointmentById,
   getMyDoctorPatientHistory,
   getMyDoctorPatientProfilePhoto,
   getMyDoctorPatients,
@@ -35,6 +36,7 @@ router.get("/available-slots", getAvailableSlots);
 // Patient
 router.post("/", authMiddleware, createAppointment);
 router.get("/me", authMiddleware, getMyPatientAppointments);
+router.get("/:id", authMiddleware, getMyAppointmentById);
 router.put("/:id/cancel", authMiddleware, cancelMyAppointment);
 router.put("/:id/reschedule", authMiddleware, rescheduleMyAppointment);
 

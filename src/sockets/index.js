@@ -29,9 +29,20 @@ function userRoom({ role, profileId }) {
 }
 
 export default function initSockets(httpServer) {
+  const corsOrigins = String(process.env.CORS_ORIGIN || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const isProd = process.env.NODE_ENV === "production";
+
   const io = new Server(httpServer, {
     cors: {
-      origin: "*",
+      origin(origin, cb) {
+        if (!origin) return cb(null, true);
+        if (!isProd && corsOrigins.length === 0) return cb(null, true);
+        if (corsOrigins.includes(origin)) return cb(null, true);
+        return cb(new Error("Not allowed by CORS"));
+      },
       methods: ["GET", "POST"],
     },
   });

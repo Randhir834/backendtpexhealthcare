@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const chatPhotoSchema = new mongoose.Schema(
+const encryptedBlobSchema = new mongoose.Schema(
   {
     fileId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -46,17 +46,32 @@ const chatMessageSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["text", "image"],
+      enum: ["text", "image", "file"],
       default: "text",
       index: true,
     },
-    text: {
+    ciphertext: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    senderCiphertext: {
       type: String,
       default: "",
       trim: true,
     },
-    photo: {
-      type: chatPhotoSchema,
+    clientMessageId: {
+      type: String,
+      default: "",
+      trim: true,
+      index: true,
+    },
+    media: {
+      type: encryptedBlobSchema,
+      default: null,
+    },
+    expiresAt: {
+      type: Date,
       default: null,
     },
   },
